@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Header from "@/components/header";
+import Navbar from "@/components/navbar";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import ThemeToggle from "@/components/theme-toggle";
+import Footer from "@/components/footer";
+
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -46,21 +48,27 @@ export default function RootLayout({
           }}
         />
       </head>
+
       <body
-           className={`${geistSans.variable} ${geistMono.variable} min-h-screen
-              bg-gradient-to-b from-background via-secondary/20 to-muted
-              text-foreground antialiased transition-colors duration-300`}
->
-        {/* background FX */}
+        className={`${geistSans.variable} ${geistMono.variable} min-h-screen
+          bg-gradient-to-b from-background via-secondary/20 to-muted
+          text-foreground antialiased transition-colors duration-300`}
+      >
+        {/* Background FX */}
         <div className="bg-spotlight" />
 
-        <Header />
+        {/* ✅ New navbar at the top */}
+        <Navbar />
+
+        {/* Main page content */}
         <main className="mx-auto max-w-5xl px-4 py-10">{children}</main>
 
-        {/* Floating theme toggle */}
+        <Footer/>
+
+        {/* Floating theme toggle button */}
         <ThemeToggle />
 
-        {/* Toasts */}
+        {/* Toast notifications */}
         <Toaster richColors theme="system" />
       </body>
     </html>

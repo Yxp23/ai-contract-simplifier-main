@@ -178,3 +178,7 @@
   transform: translateY(-2px);
   background: color-mix(in oklab, var(--card) 95%, white);
 }
+
+html {
+  scroll-behavior: smooth;
+}
