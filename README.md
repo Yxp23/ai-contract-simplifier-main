@@ -1,6 +1,6 @@
 🧾 AI Contract & Document Simplifier
 
-A full-stack AI tool that converts long, complex legal contracts into clear, structured, plain-English summaries with risks, obligations, payments, and next steps — powered by GPT-4o.
+A full-stack AI tool that converts long, complex legal contracts into clear, structured, plain-English summaries with risks, obligations, payments, and next steps.
 
 🚀 Overview
 This project is a Next.js + OpenAI application that ingests full-length contracts (PDF or raw text), extracts clauses, analyzes legal risk, and produces a structured JSON summary with optional “brief” or “simple English” tone.
