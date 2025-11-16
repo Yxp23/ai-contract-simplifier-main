@@ -1,17 +1,5 @@
 import { NextResponse } from "next/server";
-
-// ✅ Polyfill for pdf-parse dependencies (required by pdf-parse-new as well)
-// @ts-ignore
-if (typeof global.DOMMatrix === "undefined") {
-  // @ts-ignore
-  global.DOMMatrix = class {
-    a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
-    invertSelf() { return this; }
-    multiplySelf() { return this; }
-    scale() { return this; }
-    translate() { return this; }
-  };
-}
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 export const runtime = "nodejs";
 
@@ -25,31 +13,25 @@ export async function POST(req: Request) {
     }
 
     const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    const pdf = await getDocument({ data: bytes }).promise;
 
-    // 👇 Using the stable community-maintained fork: pdf-parse-new
-    // @ts-ignore
-    const pdfParse = require("pdf-parse-new");
-    
-    // Safety check
-    if (typeof pdfParse !== "function") {
-        console.error("New PDF parser failed to load as a function.");
-        throw new Error("PDF parser failed to load. Check package installation.");
+    let fullText = "";
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const text = content.items.map((item: any) => item.str).join(" ");
+      fullText += "\n\n" + text;
     }
 
-    // ✅ pdfParse is now reliably callable
-    const data = await pdfParse(buffer);
-    const text = data.text || "";
-
-    if (!text.trim()) {
+    if (!fullText.trim()) {
       return NextResponse.json(
         { error: "No text could be extracted." },
         { status: 422 }
       );
     }
 
-    console.log("✅ Extracted PDF length:", text.length);
-    return NextResponse.json({ text: text.trim().slice(0, 12000) });
+    return NextResponse.json({ text: fullText.trim() });
 
   } catch (err: any) {
     console.error("❌ PDF parse error:", err);

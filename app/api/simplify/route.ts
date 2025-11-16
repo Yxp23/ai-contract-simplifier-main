@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { NextResponse } from "next/server";
 
 export const runtime = "edge";
-const MAX_INPUT_CHARS = 12000;
+const MAX_INPUT_CHARS = 350000;
 
 type SummaryJSON = {
   tldr: string;
@@ -43,7 +43,7 @@ function normalize(payload: any): SummaryJSON {
   };
 }
 
-// Tolerant JSON extractor (handles ```json fences and stray text)
+// Extract JSON from messy LLM outputs
 function extractJSON(raw: string): any {
   try {
     return JSON.parse(raw);
@@ -56,7 +56,7 @@ function extractJSON(raw: string): any {
   }
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
-  if (start !== -1 && end !== -1 && end > start) {
+  if (start !== -1 && end !== -1) {
     try {
       return JSON.parse(raw.slice(start, end + 1));
     } catch {}
@@ -64,12 +64,12 @@ function extractJSON(raw: string): any {
   return {};
 }
 
-// ---------- Route ----------
+// ---------- API Route ----------
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const text = String(body?.text ?? "");
-    const tone = body?.tone === "brief" ? "brief" : "simple"; // Default to 'simple' for plain-language mode
+    const tone = body?.tone === "brief" ? "brief" : "simple";
 
     if (!text.trim()) {
       return NextResponse.json({ error: "Missing 'text'." }, { status: 400 });
@@ -79,69 +79,90 @@ export async function POST(req: Request) {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     if (!openai.apiKey) {
-      return NextResponse.json({ error: "Missing OPENAI_API_KEY on server" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Missing OPENAI_API_KEY on server" },
+        { status: 500 }
+      );
     }
 
     const MODEL = "gpt-4o";
 
-    // ----- Tone Directives -----
+    // ---------- Tone rules ----------
     const TONE_DIRECTIVES =
       tone === "simple"
         ? `
-TONE = "simple explanation"
-- Write in plain English at a 7th-grade reading level.
-- Use short, clear sentences and examples if helpful.
-- Define legal jargon the first time it appears (e.g., "indemnity (you cover their losses)").
-- Explain each clause as if you were helping a small business owner understand it.
-- Describe what each clause means in real life — e.g., "If you miss a report, they can delay payment."
-- Include the purpose behind the rule ("This protects the Commission from unfinished work.").
-- Be thorough but readable — aim to teach, not just summarize.
-`.trim()
+Write in plain English for a 7th-grade reading level.
+Use short sentences. Define legal jargon the first time it appears.
+Highlight what each clause means in real life.
+`
         : `
-TONE = "brief summary"
-- Be compact and executive-ready (bullet fragments are fine).
-- Focus only on key clauses, responsibilities, and risk points.
-`.trim();
+Be concise, executive-ready, and sharply focused on key terms.
+`;
 
-    // ----- System Prompt -----
+    // ---------- Dual-Pass Extraction System Prompt ----------
     const system = `
-You are an expert contract explainer AI.
-Your job is to read legal contracts and rewrite them in *clear, everyday English* while keeping every key legal meaning.
+You are a legal contract analysis AI.
 
-Return STRICT JSON in this shape:
+Your job is to perform a TWO-STEP reasoning pipeline:
+
+========================================================
+STEP 1 — EXTRACTION (Not shown to user)
+Extract EVERY important clause from the contract including:
+- Parties & roles
+- Purpose of agreement
+- All obligations of the subcontractor (every duty, process, reporting requirement)
+- All obligations of the contractor
+- Payment terms, timing, invoices, deductions, penalties
+- Dates, deadlines, termination rules, notices
+- Liability, indemnity, responsibility, damage clauses
+- Insurance requirements and minimum coverage amounts
+- Safety/SHE responsibilities + penalties
+- Confidentiality
+- Intellectual property
+- Force majeure
+- Security requirements
+- Assignment, subcontracting
+- Risk flags, one-sided clauses, concerning obligations
+- Anything missing or unclear
+
+This extraction should be *exhaustive*, even if the contract is long.
+You MUST use this extraction to produce an accurate summary.
+
+========================================================
+STEP 2 — SUMMARY (This is what you output)
+Using the extraction above, write STRICT JSON:
+
 {
-  "tldr": "1–2 sentence plain-language summary of the contract",
-  "parties_purpose": "who is involved and why the contract exists (in full sentences)",
-  "obligations": { 
-    "you": ["plain-English explanations of your responsibilities"],
-    "them": ["plain-English explanations of the other party's responsibilities"]
-  },
-  "money_dates": { 
-    "payments": ["explain payment terms, limits, and timing clearly"], 
-    "dates": ["explain start, end, and termination conditions clearly"]
-  },
-  "risk_flags": ["highlight risky or one-sided terms in plain English"],
-  "actions": ["list what the reader should actually do"],
-  "unknowns": ["list missing or unspecified details like amounts or dates"],
-  "excerpt": "include one or two short quotes from the original text that show tone or key phrasing",
-  "confidence": 0.0
+  "tldr": "",
+  "parties_purpose": "",
+  "obligations": { "you": [], "them": [] },
+  "money_dates": { "payments": [], "dates": [] },
+  "risk_flags": [],
+  "actions": [],
+  "unknowns": [],
+  "excerpt": "",
+  "confidence": 0
 }
 
+========================================================
+RULES:
+- Output ONLY JSON.
+- Summaries MUST be complete — no skipped clauses.
+- Avoid legal jargon unless defined in simple language.
+- Include 1–2 real quotes from the contract in "excerpt".
+- confidence = number between 0–1
+- If any information is missing in the contract, list it under "unknowns".
+- Base your summary ONLY on the provided text (no hallucination).
 ${TONE_DIRECTIVES}
+========================================================
+`;
 
-Global rules:
-- Use ONLY JSON. No extra prose or markdown outside JSON.
-- Write full, natural sentences instead of bullet fragments.
-- Avoid legalese; prefer simple explanations.
-- If information is missing, state 'not specified'.
-- "confidence" should be between 0–1.
-`.trim();
-
-    const user = `CONTRACT TEXT:\n${input}\n`;
+    const user = `CONTRACT TEXT:\n${input}`;
 
     // ---------- Attempt 1: JSON mode ----------
     let raw = "";
     let parsed: any = {};
+
     try {
       const completion = await openai.chat.completions.create({
         model: MODEL,
@@ -152,13 +173,14 @@ Global rules:
         ],
         response_format: { type: "json_object" },
       });
+
       raw = (completion.choices[0]?.message?.content ?? "").trim();
       parsed = extractJSON(raw);
     } catch (e) {
-      console.warn("JSON mode failed, retrying in text mode...", e);
+      console.warn("JSON mode failed:", e);
     }
 
-    // ---------- Attempt 2: Fallback (text mode) ----------
+    // ---------- Attempt 2: Text mode fallback ----------
     if (!parsed || Object.keys(parsed).length === 0) {
       const retry = await openai.chat.completions.create({
         model: MODEL,
@@ -166,11 +188,12 @@ Global rules:
         messages: [
           {
             role: "system",
-            content: `${system}\nIf JSON mode fails, output valid JSON manually between \`\`\`json fences.`,
+            content: `${system}\nIf JSON mode fails, output valid JSON inside \`\`\`json fences.`,
           },
           { role: "user", content: user },
         ],
       });
+
       raw = (retry.choices[0]?.message?.content ?? "").trim();
       parsed = extractJSON(raw);
     }
@@ -179,7 +202,7 @@ Global rules:
     const normalized = normalize(parsed);
 
     if (!normalized.tldr && text.length > 30) {
-      normalized.tldr = "Plain-English summary unavailable — please retry.";
+      normalized.tldr = "Summary unavailable — please retry.";
     }
 
     if (typeof parsed?.confidence === "number" && parsed.confidence <= 1) {
@@ -191,9 +214,8 @@ Global rules:
     console.error("/api/simplify error:", err?.response?.data || err);
     const message =
       err?.status === 429
-        ? "Rate limit or quota reached. Check your OpenAI billing/limits."
+        ? "Rate limit or quota reached."
         : "Failed to generate summary.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-
