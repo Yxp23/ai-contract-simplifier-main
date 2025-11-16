@@ -7,6 +7,8 @@ This project is a Next.js + OpenAI application that ingests full-length contract
 It is built as a production-grade AI app, featuring chunking, multi-stage LLM reasoning, PDF parsing, and a polished front-end.
 
 ✨ Key Features & Technical Highlights
+
+
 🔹 Advanced AI Processing Pipeline (LLM System Design)
 The system is engineered for reliability on long, complex documents:
 Document Chunking: Automatically splits large documents (up to 350,000 characters) into safe, manageable segments to adhere to LLM context window limits and optimize processing.
