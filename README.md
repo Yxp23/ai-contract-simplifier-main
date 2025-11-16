@@ -1,5 +1,7 @@
 🧾 AI Contract & Document Simplifier
 
+[▶️ **Play Live Demo Here**](https://ai-contract-simplifier-main-sbpq-i2a6kir5f.vercel.app)
+
 A full-stack AI tool that converts long, complex legal contracts into clear, structured, plain-English summaries with risks, obligations, payments, and next steps.
 
 🚀 Overview
